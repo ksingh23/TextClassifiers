@@ -1,0 +1,7 @@
+*.ipynb
+.ipynb_checkpoints/
+MiniTrainingSet/
+reuters/
+SingleTestSample/
+test/
+training/
