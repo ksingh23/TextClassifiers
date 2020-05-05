@@ -37,7 +37,7 @@ def compute_tf_idf(tf, idf):
     for term, vec in tf.items():
         tf_idf[term] = [v * idf[term] for v in vec]
     return tf_idf
-    
+
 
 
 def compute_total_word_frequencies(dir_path, valid_words):
@@ -127,7 +127,7 @@ def get_valid_words(dir_path, stop_words):
                 if word not in valid_words:
                     valid_words[word] = True
     return valid_words
-            
+
 
 if __name__ == '__main__':
     start = float(datetime.datetime.utcnow().timestamp())
