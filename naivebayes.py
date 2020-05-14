@@ -26,6 +26,70 @@ import datetime
 from operator import itemgetter
 
 
+def naive_bayes(tf_idf, vectorized_text, prior_probs):
+    '''
+    :param tf_idf: dictionary where keys = labels and values = dictionary where
+                    keys = words and values = tf_idf scores
+    :param vectorized_text: words from text that are in valid_words
+    :param prior_probs: dictionary where keys = labels and values = the probability
+                        of seeing that label in the dataset
+    '''
+    labels = []
+    for label in tf_idf.keys():
+        prob = np.log(prior_probs[label])
+        conditional = 0.0
+        for word in vectorized_text:
+            conditional += np.log(tf_idf[label][word])
+        prob += conditional
+        labels.append((label, prob))
+    return sorted(labels, key=itemgetter(1), reverse=True)
+
+
+def bayes_accuracy_model(num, number_labels, labels, num_samples_desired):
+    '''
+    :param num: the number of the document being checked, so we can check
+                the correct labels for it
+    :param number_labels: dictionary where keys = number of sample and
+                            values = the set of labels associated with
+                            that sample
+    :param labels: the set of labels computed by Naive Bayes
+    :param num_samples_desired: determines the length of the subset of 
+                                the computed labels desired
+    '''
+    sample_labels = number_labels[num]
+    successes = 0
+    computed_labels = [x for x,y in labels]
+    computed_labels = computed_labels[:num_samples_desired]
+    if all(x in computed_labels for x in sample_labels):
+        successes += 1
+    else:
+        diff = set(sample_labels).difference(set(computed_labels))
+        if len(diff) < len(computed_labels):
+            successes += (len(diff)/len(computed_labels))
+    return successes
+
+
+def vectorize_text(stop_words, valid_words, st, filepath):
+    '''
+    This function removes non valid words from the text to put it into
+    the Naive Bayes classifier
+    :param stop_words: a set of words like "the", "and", etc
+                        that should be stripped out of any computations
+    :param valid_words: dictionary where keys = valid words in the corpus
+    :param st: Lancaster Stemmer object
+    :param filepath: path to the text file
+    :return: a vector of text stripped of stop words and non-valid words
+    '''
+    with open(filepath, "r") as f:
+        content = f.read()
+        labels = number_labels[num]
+        words = nltk.word_tokenize(content)
+        words = [st.stem(word) for word in words]
+        new_words = [word.lower() for word in words if word not in stop_words]
+        new_words = [word.lower() for word in new_words if word in valid_words.keys()]
+    return new_words
+
+
 def compute_tf_idf(tf, idf):
     '''
     Perhaps I need to restructure this; so that the keys are the document # and the values
@@ -48,72 +112,28 @@ def compute_tf_idf(tf, idf):
     
 
 
-def compute_avg_tf_idf_by_label(tf_idf, label_list, number_labels):
+def cosine_similarity(avg_tf_idf, tf_idf_vector):
     '''
-    The goal of this function is to find a tf_idf vector
-    representation of each unique label. This is done by summing the
-    vectors for each document with a specific label, and dividing by the #
-    of these documents
-    :param tf_idf: a dictionary where keys = document # and values = 
-                    a dictionary where keys = word and value = the tf_idf
-                    score for that term
-    :param label_list: list of the unique labels on the documents
-    :param number_labels: dictionary where the key = document # and the value
-                            = the set of labels associated with those samples
-    :return: a dictionary where the keys = labels and values = dictionary where the 
-                keys = words and values = the average tf_idf score for all documents 
-                with that label
+    This function takes the average TF-IDF vector for 
+    every unique label and computes the cosine similarity between in
+    and the tf-idf vector for a given sample. 
+    :param avg_tf_idf: dictionary where keys = labels and values = dictionary
+                        where keys = words and values = the average tf-idf score
+                        for that term in documents with that specific label
+    :param tf_idf_vector: numpy array 
     '''
-    avg_tf_idf = {label: defaultdict(float) for label in label_list}
-    label_count = {label: 0  for label in label_list}
-    for num, scores in tf_idf.items():
-        labels = number_labels[num]
-        for l in labels:
-            label_count[l] += 1
-        for word, value in scores.items():
-            for l in labels:
-                if word not in avg_tf_idf.keys():
-                    avg_tf_idf[l][word] = tf_idf[num][word]
-                else:
-                    avg_tf_idf[l][word] += tf_idf[num][word]
-    for label, scores in avg_tf_idf.items():
-        for word, value in scores.items():
-            avg_tf_idf[label][word] /= label_count[label]
-    return avg_tf_idf
-
-
-def tf_idf_for_one_doc(filepath):
-    '''
-    This function takes a single document and computes the tf_idf score for it,
-    so we don't need to enter a directory like we do to compute prior and conditional
-    probabilities for training
-    :param filepath: the path to the file we are computing tf_idf for
-    '''
-    with open(filepath, "r") as f:
-        content = f.read()
-        words = nltk.word_tokenize(content)
-        new_words = [word.lower() for word in words if word.isalpha()]
-        new_words = [word.lower() for word in new_words if word not in stop_words]
-        frequencies = Counter(new_words)
-
-
-def naive_bayes(prior_probs, conditional_probs, vectorized_text, label_list):
-    lab = []
-    # Instead of working with products of what could be very small floats
-    # we work with the log of all the probabilities, to deal with sums that
-    # end up being less negligible than before
-    # P(Y | x) = P(Y) * P(x | Y)/P(x)
-    # P(x) = sum of P(y_i)*(P(x | y_i)) for all i in the list of labels
-    for label in label_list:
-        bayes_prob = 0
-        for word in vectorized_text:
-            # term_total_prob = sum([prior_probs[label] * conditional_probs[label][word] for label in label_list])
-            prior_prob = prior_probs[label]
-            conditional_prob = conditional_probs[label][word]
-            bayes_prob += (math.log(conditional_prob) + math.log(prior_prob))
-        # bayes_prob = math.exp(bayes_prob)
-        lab.append((label, bayes_prob))
-    return sorted(lab, key=itemgetter(1), reverse=True)
+    labels = []
+    for label in avg_tf_idf.keys():
+        # Cosine similarity = (a * b)/(|a| * |b|)
+        # Higher cosine similarity = more similar documents
+        vector = np.asarray(list(avg_tf_idf[label].values()))
+        similarity = np.dot(vector, tf_idf_vector)
+        mag_a = np.sqrt(np.dot(vector, vector))
+        mag_b = np.sqrt(np.dot(tf_idf_vector, tf_idf_vector))
+        denom = np.dot(mag_a, mag_b)
+        similarity /= denom
+        labels.append((label, similarity))
+    return sorted(labels, key=itemgetter(1), reverse=True)
 
 
 def compute_total_word_frequencies(dir_path, valid_words, st):
@@ -123,7 +143,7 @@ def compute_total_word_frequencies(dir_path, valid_words, st):
                         terms are present in the text file
     :param st: Lancaster Stemmer object 
     :return: a dictionary where keys = words and values = # of documents in which
-            that word appears
+            that word appears 
     '''
     frequencies = {word: 0 for word in valid_words}
     for file in os.listdir(dir_path):
@@ -138,30 +158,6 @@ def compute_total_word_frequencies(dir_path, valid_words, st):
             for word in new_words:
                 frequencies[word] += 1
     return frequencies
-
-
-def compute_tf(dir_path, valid_words):
-    '''
-    :param dir_path: a path to the directory containing all the training samples
-    :param valid_words: a dictionary where the keys are all the unique, valid
-                        terms are present in the text file
-    :return: a dictionary where keys = words and values = a vector of the tf score 
-            for each document (so the length of each of these vectors is the length
-            of the training set)
-    '''
-    num_docs = len([name for name in os.listdir(dir_path) if os.path.isfile(dir_path + "\\" + name)])
-    tf_scores = {word: ([0] * num_docs) for word in valid_words}
-    for file in os.listdir(dir_path):
-        with open(dir_path + '\\' + file, "r") as f:
-            content = f.read()
-            num = int(file[0:len(file) - 4]) 
-            words = nltk.word_tokenize(content)
-            new_words = [word.lower() for word in words if word.isalpha()]
-            new_words = [word.lower() for word in new_words if word not in stop_words]
-            frequencies = Counter(new_words)
-            for term in tf_scores.keys():
-                tf_scores[term][num-1] = frequencies[term]/len(new_words)
-    return tf_scores
 
 
 def compute_tf_new(dir_path, valid_words, st, stop_words):
@@ -216,13 +212,13 @@ def compute_idf_new(dir_path, valid_words, frequencies, tf_keys):
             
 
 
-def compute_tf_by_label(tf, prior_probs, number_labels):
+def compute_tf_idf_by_label(tf_idf, prior_probs, number_labels):
     '''
-    This function will compute the total tf score for
+    This function will compute the total tf_idf score for
     each individual label
-    :param tf: a dictionary where keys = words and values = a vector of the tf score 
-            for each document (so the length of each of these vectors is the length
-            of the training set)
+    :param tf_idf: a dictionary where keys = number of document and values = 
+                    dictionary where keys = words and values = the tf_idf score 
+                    of that word in that document
     :param prior_probs: a dictionary where keys = labels and values = the prob
                         of seeing that label (only used so I can grab the unique
                         labels for the document set)
@@ -232,32 +228,11 @@ def compute_tf_by_label(tf, prior_probs, number_labels):
             all words that are in that label
     '''
     total_tf_by_label = {label: 0.0 for label in prior_probs.keys()}
-    for word, vector in tf.items():
-        for i in range(len(vector)):
-            if vector[i] == 0.0:
-                continue
-            labels = number_labels[i+1]
-            for l in labels:
-                total_tf_by_label[l] += vector[i]
+    for num, vector in tf_idf.items():
+        labels = number_labels[num]
+        for l in labels:
+            total_tf_by_label[l] += sum(list(vector.values()))
     return total_tf_by_label
-
-
-def compute_idf(dir_path, valid_words, frequencies):
-    '''
-    IDF is inverse document frequency, defined as 
-    (# of total documents)/(# of occurrences of the word across all documents)
-    :param dir_path: a path to the directory containing all the training samples
-    :param valid_words: a dictionary where the keys are all the unique, valid
-                        terms are present in the text file
-    :param frequencies: the return value of the compute_total_word_frequencies
-                        function, see above
-    :return: a dictionary where the keys = words and values = the IDF score as defined above
-    '''
-    num_docs = len([name for name in os.listdir(dir_path) if os.path.isfile(dir_path + "\\" + name)])
-    idf_scores = {word: 0 for word in valid_words}
-    for key in idf_scores.keys():
-            idf_scores[key] = np.log(num_docs/(frequencies[key] + 1))
-    return idf_scores
 
 
 def get_valid_words(dir_path, stop_words, st):
@@ -339,17 +314,17 @@ def compute_prior_probabilities(number_labels):
     return prior_probs
 
 
-def compute_conditional_probabilities(tf_idf, valid_words, prior_probs, number_labels, tf_by_label):
+def compute_conditional_probabilities(tf_idf, valid_words, prior_probs, number_labels, tf_idf_by_label):
     '''
     This function will take each unique term found in valid_words
     and compute a distribution (Gaussian) for each one by finding the
     mean and standard deviation of the tf-idf scores for each document
-    :param tf_idf: a dictionary where keys = terms and values = vectors
-                    of len(# of training samples) where the ith entry 
-                    corresponds to the tf_idf score of that word in
-                    training sample i + 1 (so tf_idf['word'][10] would 
-                    represent the tf_idf score of the term 'word' in
-                    document # 11 in the training set)
+    For this to work properly, I need the keys to be indices of the tf_idf
+    array. They need to line up properly, otherwise this won't work, so each
+    each index of the tf_idf vector maps to the same word
+    
+    :param tf_idf: a dictionary where keys = document # and values = dictionary
+                    where keys = words and values = the tf_idf score of that word
     :param valid_words: a dictionary where the keys are all the unique, valid
                         terms are present in the text file
     :param prior_probs: a dictionary where keys = labels and values = the prob
@@ -357,27 +332,108 @@ def compute_conditional_probabilities(tf_idf, valid_words, prior_probs, number_l
                         labels for the document set)
     :param number_labels: a dictionary where the keys = number of the sample and 
                         labels = the list of labels associated with it
-    :param tf_by_label: a dictionary where keys = labels and values = total of the 
+    :param tf_idf_by_label: a dictionary where keys = labels and values = total of the 
                         tf_idf scores of all words in documents with that label
-    :return: a dictionary where the keys = terms from valid_words and 
-                values = another dictionary where keys = labels and values
-                = the mean, std. dev of the occurrences of that word in documents
-                with the key label
+    :return: a dictionary where the keys = labels and values = dictionary where keys = words
+            and values = the tf_idf score for that word given that label
     '''
     # Keys = words, so populate a dictionary first
-    conditional_probs = {word: {l: 0.0 for l in prior_probs.keys()} for word in valid_words}
-    for term, vector in tf_idf.items():
-        for i in range(len(vector)):
-            if vector[i] == 0:   # term not present in this document
-                continue
-            label_list = number_labels[i+1]
-            for l in label_list:
-                conditional_probs[term][l] += vector[i]
-    for word, value in conditional_probs.items():
-        for label,score in value.items():
-            conditional_probs[word][label] /= (tf_by_label[label] + len(valid_words))
-            conditional_probs[word][label] += (1/(tf_by_label[label] + len(valid_words)))
+    conditional_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
+    for num, vector in tf_idf.items():
+        labels = number_labels[num]
+        for label in labels:
+            for word, score in vector.items():
+                conditional_probs[label][word] += score
+    for label, value in conditional_probs.items():
+        for word,score in value.items():
+            conditional_probs[label][word] /= (tf_idf_by_label[label] + len(valid_words))
+            conditional_probs[label][word] += (1/(tf_idf_by_label[label] + len(valid_words)))
     return conditional_probs
+
+
+def compute_tf_distributions(dir_path, valid_words, st, stop_words, number_labels, label_list):
+    '''
+    This function creates one "mega document" for each class and computes
+    the tf scores of that document
+    :param dir_path: a path to the directory containing all the training samples
+    :param valid_words: a dictionary where the keys are all the unique, valid
+                        terms are present in the text file
+    :param st: Lancaster Stemmer object
+    :param stop_words: set of words like "the" and "and" to remove from computations
+    :param number_labels: dictionary where keys = document # and values = the set of 
+                            labels associated with those labels
+    :param label_list: list of all the unique labels
+    :return: a dictionary where keys = labels and values = dictionary where keys 
+            = words and values = the tf score of that word in the "mega-document"
+            of that label 
+            AND 
+            a dictionary where keys = labels and values = dictionary where keys = words 
+            and values =  the number of documents with that label in which that word appears
+    '''
+    tf = {label: {word: 10**-10 for word in valid_words} for label in label_list}
+    label_frequencies = {label: {word: 0 for word in valid_words} for label in label_list}
+    for file in os.listdir(dir_path):
+        with open(dir_path + '\\' + file, "r") as f:
+            content = f.read()
+            num = int(file[0:len(file) - 4])
+            labels = number_labels[num]
+            words = nltk.word_tokenize(content)
+            words = [st.stem(word) for word in words]
+            new_words = [word.lower() for word in words if word not in stop_words]
+            new_words = [word.lower() for word in new_words if word in valid_words.keys()]
+            frequencies = Counter(new_words)
+            unique_words = set(new_words)
+            for l in labels:
+                for word in unique_words:
+                    tf[l][word] += (frequencies[word]/len(new_words))
+                    label_frequencies[l][word] += 1
+    return [tf, label_frequencies]
+
+
+def compute_idf_distributions(dir_path, valid_words, number_labels, label_list, frequencies):
+    '''
+    IDF is inverse document frequency, defined as 
+    (# of total documents)/(# of occurrences of the word across all documents)
+    This function will compute the idf score of each word across each label
+    :param dir_path: a path to the directory containing all the training samples
+    :param valid_words: a dictionary where the keys are all the unique, valid
+                        terms are present in the text file
+    :param number_labels: dictionary where keys = number of document and labels = 
+                            the set of labels associated with that document
+    :param label_list: list of all unique labels in the dataset
+    :param frequencies: dictionary where keys = labels and values = Counter object
+                        with frequencies of all terms in the label's "mega document"
+    :return: a dictionary where keys = labels and values = dictionary where keys
+            = words and values = idf score of that word
+    '''
+    idf_scores = {label: {word: 0.0 for word in valid_words} for label in label_list}
+    label_counts = {label: 0 for label in label_list}
+    for file in os.listdir(dir_path):
+        num = int(file[0:len(file) - 4])
+        labels = number_labels[num]
+        for l in labels:
+            label_counts[l] += 1
+    for label, vector in idf_scores.items():
+        for word in vector.keys():
+            idf_scores[label][word] = np.log(label_counts[label]/(frequencies[label][word] + 1))
+    return idf_scores
+
+
+def compute_tf_idf_distributions(tf, idf):
+    '''
+    This function will compute the tf_idf score, grouped by label
+    :param tf: Dictionary where keys = labels and values = dictionary
+                where keys = words and values = tf score
+    :param idf: Dictionary where keys = labels and values = dictionary
+                where keys = words and values = idf score
+    :return: Dictionary where keys = labels and values = dictionary
+                where keys = words and values = tf_idf score
+    '''
+    tf_idf = {label: {word: 0.0 for word in valid_words} for label in tf.keys()}
+    for label, vector in tf.items():
+        for word, value in vector.items():
+            tf_idf[label][word] = tf[label][word] * idf[label][word]
+    return tf_idf
 
 
 if __name__ == '__main__':
@@ -385,57 +441,36 @@ if __name__ == '__main__':
     st = LancasterStemmer() 
     words = ['where', 'whey', 'wheat', 'when', 'wheaty']
     words = nltk.pos_tag(words)
-    print(words)
+    # print(words)
     stems = [st.stem(word) for word, tag in words]
-    print(stems)
+    # print(stems)
     # lem = WordNetLemmatizer()
     # lemmas = [lem.lemmatize(w, get_wordnet_part_of_speech(t.upper())) for w,t in words]
     # print(lemmas)
     end = float(datetime.datetime.utcnow().timestamp())
-    print(end - start)    
+    # print(end - start)    
 
     stop_words = set(stopwords.words('english'))
-    # print(stop_words, "\n")
-    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\Text Classifiers\\MiniTrainingSet"
+    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\Text Classifiers\\training"
     valid_words = get_valid_words(dir_path, stop_words, st)
-    frequencies = compute_total_word_frequencies(dir_path, valid_words, st)
-    # 150 unique words without the stemmer
-    # 142 with it
-    # print(valid_words.keys(), "\n")
-    # Valid words does not strip out stop words. Why is that?
-    tf = compute_tf_new(dir_path, valid_words, st, stop_words)
-    idf = compute_idf_new(dir_path, valid_words, frequencies, tf.keys())
-    tf_idf = compute_tf_idf(tf, idf)
-    '''
-    for num,value in tf_idf.items():
-        print("Document #", num)
-        for key, v in sorted(value.items(), key=itemgetter(1), reverse=True):
-            if v == 0.0:
-                continue
-            print(key, v)
-        print("\n")
-    '''
-
-    number_labels = add_labels_to_samples("cats1.txt")
+    number_labels = add_labels_to_samples("cats.txt")
     prior_probs = compute_prior_probabilities(number_labels)
-    avg_tf_idf = compute_avg_tf_idf_by_label(tf_idf, prior_probs.keys(), number_labels)
-    for label, scores in avg_tf_idf.items():
-        print("Label: ", label)
-        for key, value in sorted(scores.items(), key=itemgetter(1), reverse=True):
-            if value == 0.0:
-                continue
-            print(key, value)
-        print("\n")
+    tf, frequencies = compute_tf_distributions(dir_path, valid_words, st, 
+                                              stop_words, number_labels, 
+                                              prior_probs.keys())
+    idf = compute_idf_distributions(dir_path, valid_words, number_labels, prior_probs.keys(),
+                                        frequencies)
+    tf_idf = compute_tf_idf_distributions(tf, idf)
 
-    prior_probs = compute_prior_probabilities(number_labels)
-    tf_by_label = compute_tf_by_label(tf, prior_probs, number_labels)
-    conditional_probs = compute_conditional_probabilities(tf_idf, valid_words, prior_probs, number_labels, tf_by_label)
-    #for key, value in tf_by_label.items():
-    #    print(key, value)
-    for key, vector in conditional_probs.items():
-        print("Key: " + key)
-        for k,v in vector.items():
-            print(k, v)
-        print("\n")
+    successes = 0
+    i = 0
+    for file in os.listdir(dir_path):
+        filepath = dir_path + '\\' + file
+        num = int(file[0:len(file) - 4])
+        text = vectorize_text(stop_words, valid_words, st, filepath)
+        computed_labels = naive_bayes(tf_idf, text, prior_probs)
+        successes += bayes_accuracy_model(num, number_labels, computed_labels, 10)
+        i += 1
+    print(successes, i)
 
 
