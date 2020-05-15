@@ -109,7 +109,7 @@ def compute_tf_idf(tf, idf):
         for word, v in value.items():
             tf_idf[num][word] = tf[num][word] * idf[word]
     return tf_idf
-    
+
 
 
 def cosine_similarity(avg_tf_idf, tf_idf_vector):
@@ -209,7 +209,7 @@ def compute_idf_new(dir_path, valid_words, frequencies, tf_keys):
     for key in idf_scores.keys():
         idf_scores[key] = np.log(num_docs/(frequencies[key] + 1))
     return idf_scores
-            
+
 
 
 def compute_tf_idf_by_label(tf_idf, prior_probs, number_labels):
@@ -261,7 +261,7 @@ def get_valid_words(dir_path, stop_words, st):
             for word in new_words:
                 valid_words[word] = True
     return valid_words
-            
+
 
 
 def add_labels_to_samples(filename):
