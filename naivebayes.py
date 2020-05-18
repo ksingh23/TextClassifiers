@@ -23,7 +23,7 @@ import datetime
 from operator import itemgetter
 
 
-def naive_bayes(conditional_probs, complement_probs, frequencies, vectorized_text, prior_probs):
+def complement_naive_bayes(conditional_probs, complement_probs, frequencies, vectorized_text, prior_probs):
     '''
     :param conditional_probs: dictionary where keys = labels and values = dictionary where
                     keys = words and values = P(x|Y)
@@ -46,6 +46,29 @@ def naive_bayes(conditional_probs, complement_probs, frequencies, vectorized_tex
                 conditional += (frequencies[label][word] * np.log(conditional_probs[label][word]))
             if complement_probs[label][word] != 0.0:
                 conditional -= (frequencies[label][word] * np.log(complement_probs[label][word]))
+        prob += conditional
+        labels.append((label, prob))
+    return sorted(labels, key=itemgetter(1))
+
+
+def multinomial_naive_bayes(conditional_probs, frequencies, vectorized_text, prior_probs):
+    '''
+    :param conditional_probs: dictionary where keys = labels and values = dictionary where
+                    keys = words and values = P(x|Y)
+    :param frequencies: dictionary where keys = labels and values = dictionary where
+                    keys = words and values = frequencies of that word given that label
+    :param vectorized_text: words from text that are in valid_words
+    :param prior_probs: dictionary where keys = labels and values = the probability
+                        of seeing that label in the dataset
+    '''
+    labels = []
+    for label in prior_probs.keys():
+        prob = np.log(prior_probs[label])
+        conditional = 0.0
+        for word in vectorized_text:
+            # This is currently outputtng NaN, why is that?
+            if conditional_probs[label][word] != 0.0:
+                conditional += (frequencies[label][word] * np.log(conditional_probs[label][word]))
         prob += conditional
         labels.append((label, prob))
     return sorted(labels, key=itemgetter(1), reverse=True)
@@ -454,10 +477,15 @@ if __name__ == '__main__':
         filepath = dir_path + '\\' + file 
         num = int(file[0:len(file) - 4])
         text = vectorize_text(stop_words, valid_words, filepath)
-        computed_labels = naive_bayes(conditional_probs, complement_probs, frequencies, text, prior_probs)
+        computed_labels = complement_naive_bayes(conditional_probs, complement_probs, frequencies, text, prior_probs)
+        # computed_labels = multinomial_naive_bayes(conditional_probs, frequencies, text, prior_probs)
         suc, e = bayes_accuracy_model(num, number_labels_test, computed_labels)
         # Even with using conditional_probs, earn appears in 2936/3019 samples, so we can
         # try CNB again to see if that remedies it.
+        # CNB brought earn labels down to 2219/3019, which is the best improvement so far
+        
+        # Multinomial Naive Bayes: 55.81% accuracy on training set 
+        # Complement Naive Bayes: 70.27% accuracy on training set
         successes += suc
         earned += e
         i += 1
