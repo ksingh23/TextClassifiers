@@ -39,12 +39,12 @@ def weight_normalized_cnb(complement_probs, idf, vectorized_text,
     '''
     labels = []
     freq = Counter(vectorized_text)
-    doc_len_discount = np.sqrt(sum([v**2 for v in freq.values()]))
     for label in prior_probs.keys():
         prob = prior_probs[label]
         conditional = 0.0
         for word in freq.keys():
-            conditional -= ((freq[word] * idf[word]) * complement_probs[label][word])
+            conditional -= (freq[word] * (idf[word]**2) * complement_probs[label][word])
+            # The idf[word] term here is a powerful tool for improving accuracy, but why?
         prob += conditional
         labels.append((label, prob))
     return sorted(labels, key=itemgetter(1), reverse=True)
@@ -65,7 +65,7 @@ def complement_naive_bayes(complement_probs, idf, vectorized_text, prior_probs):
         conditional = 0.0
         freq = Counter(vectorized_text)
         for word in freq.keys():
-            conditional -= (freq[word]*idf[word] * complement_probs[label][word])
+            conditional -= (freq[word] * idf[word] * complement_probs[label][word])
         prob += conditional
         labels.append((label, prob))
     return sorted(labels, key=itemgetter(1), reverse=True)
@@ -86,7 +86,7 @@ def multinomial_naive_bayes(conditional_probs, idf, vectorized_text, prior_probs
         conditional = 0.0
         for word in vectorized_text:
             if conditional_probs[label][word] != 0.0:
-                conditional += (freq[word]*idf[word] * conditional_probs[label][word])
+                conditional += (freq[word] * idf[word] * conditional_probs[label][word])
         prob += conditional
         labels.append((label, prob))
     return sorted(labels, key=itemgetter(1), reverse=True)
@@ -341,93 +341,6 @@ def word_vectors_for_mega_docs(dir_path, valid_words, number_labels, label_list)
     return [mega_docs, total_words, idf]
 
 
-def compute_tf_distributions(dir_path, valid_words, number_labels, label_list):
-    '''
-    This function creates one "mega document" for each class and computes
-    the tf scores of that document
-    :param dir_path: a path to the directory containing all the training samples
-    :param valid_words: a dictionary where the keys are all the unique, valid
-                        terms are present in the text file
-    :param number_labels: dictionary where keys = document # and values = the set of 
-                            labels associated with those labels
-    :param label_list: list of all the unique labels
-    :return: a dictionary where keys = labels and values = dictionary where keys 
-            = words and values = the tf score of that word in the "mega-document"
-            of that label 
-            AND 
-            a dictionary where keys = labels and values = dictionary where keys = words 
-            and values =  the number of documents with that label in which that word appears
-    '''
-    tf = {label: {word: 0.0 for word in valid_words} for label in label_list}
-    label_frequencies = {label: {word: 0 for word in valid_words} for label in label_list}
-    for file in os.listdir(dir_path):
-        with open(dir_path + '\\' + file, "r") as f:
-            content = f.read()
-            num = int(file[0:len(file) - 4])
-            labels = number_labels[num]
-            words = nltk.word_tokenize(content)
-            new_words = [word.lower() for word in words]
-            new_words = [word.lower() for word in new_words if word in valid_words]
-            frequencies = Counter(new_words)
-            unique_words = set(new_words)
-            other_labels = set(label_list).difference(labels)
-            for l in labels:
-                for word in unique_words:
-                    tf[l][word] += (frequencies[word]/len(new_words))
-                    label_frequencies[l][word] += 1
-    return [tf, label_frequencies]
-
-
-def compute_idf_distributions(dir_path, valid_words, number_labels, label_list, frequencies):
-    '''
-    IDF is inverse document frequency, defined as 
-    (# of total documents)/(# of occurrences of the word across all documents)
-    This function will compute the idf score of each word across each label
-    :param dir_path: a path to the directory containing all the training samples
-    :param valid_words: a dictionary where the keys are all the unique, valid
-                        terms are present in the text file
-    :param number_labels: dictionary where keys = number of document and labels = 
-                            the set of labels associated with that document
-    :param label_list: list of all unique labels in the dataset
-    :param frequencies: dictionary where keys = labels and values = Counter object
-                        with frequencies of all terms in the label's "mega document"
-    :return: a dictionary where keys = labels and values = dictionary where keys
-            = words and values = idf score of that word
-    '''
-    idf_scores = {label: {word: 0.0 for word in valid_words} for label in label_list}
-    label_counts = {label: 0 for label in label_list}
-    for file in os.listdir(dir_path):
-        num = int(file[0:len(file) - 4])
-        labels = number_labels[num]
-        for l in labels:
-            label_counts[l] += 1
-    for label, vector in idf_scores.items():
-        for word in vector.keys():
-            # Only one occurrence of lin-oil, and thus, the "mega document" is just
-            # the single document itself. 
-            idf_scores[label][word] = 1 + np.log(label_counts[label]/(frequencies[label][word] + 1))
-    return idf_scores, label_counts
-
-
-def compute_tf_idf_distributions(tf, idf):
-    '''
-    This function will compute the tf_idf score, grouped by label
-    :param tf: Dictionary where keys = labels and values = dictionary
-                where keys = words and values = tf score
-    :param idf: Dictionary where keys = labels and values = dictionary
-                where keys = words and values = idf score
-    :return: Dictionary where keys = labels and values = dictionary
-                where keys = words and values = tf_idf score
-    '''
-    tf_idf = {label: {word: 0.0 for word in valid_words} for label in tf.keys()}
-    for label, vector in tf.items():
-        for word, value in vector.items():
-            # if label == "earn":
-            #    print(word, tf[label][word], idf[label][word])
-            tf_idf[label][word] = tf[label][word] * idf[label][word]
-    return tf_idf
-
-
 def rename_files(dir_path):
     '''
     Utility function designed to rename all files in any directory
@@ -465,6 +378,57 @@ def compute_frequencies_by_class(mega_docs, valid_words, label_list):
     return [frequencies, total_frequencies]
 
 
+def compute_word_frequencies(dir_path, valid_words, number_labels, label_list):
+    '''
+    This function will iterate over the documents and compute the frequencies of 
+    the words by label and in total
+    :param dir_path: a path to the directory containing all the training samples
+    :param valid_words: a dictionary where the keys are all the unique, valid
+                        terms are present in the text file
+    :param number_labels: dictionary where keys = document # and values = the set of 
+                            labels associated with those labels
+    :param label_list: list of all the unique labels
+    :return: a dictionary where keys = labels and values = dictionary where keys 
+            = words and values = the frequencies of that word in documents with that label
+            AND 
+            a dictionary where keys = words and values = the total # of occurrences of
+            that word
+            AND
+            a dictionary where keys = words and values = the idf score for that word
+            AND 
+            a dictionary where keys = labels and values = the total # of words associated with that label
+            AND
+            the total # of valid words in the entire corpus
+    '''
+    frequencies = {label: {word: 0.0 for word in valid_words} for label in label_list}
+    idf = {word: 0.0 for word in valid_words}
+    total_frequencies = {word: 0 for word in valid_words}
+    total_word_count_by_label = {label: 0 for label in label_list}
+    i = 0
+    total_num_words = 0
+    for file in os.listdir(dir_path):
+        with open(dir_path + '\\' + file, "r") as f:
+            content = f.read()
+            num = int(file[0:len(file) - 4])
+            labels = number_labels[num]
+            words = nltk.word_tokenize(content)
+            new_words = [word.lower() for word in words]
+            new_words = [word.lower() for word in new_words if word in valid_words]
+            total_num_words += len(new_words)
+            freq = Counter(new_words)
+            length_normalize = np.sqrt(sum([score**2 for score in freq.values()]))
+            for l in labels:
+                total_word_count_by_label[l] += len(new_words)
+                for word in freq.keys():
+                    frequencies[l][word] += (freq[word]/length_normalize)
+                    total_frequencies[word] += (freq[word]/length_normalize)
+                    idf[word] += 1
+            i += 1
+    for word in idf.keys():
+        idf[word] = 1 + np.log(i/(idf[word]+1))
+    return [frequencies, total_frequencies, idf, total_word_count_by_label, total_num_words]
+
+
 if __name__ == '__main__':
     dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\Text Classifiers\\training"
     stop_words = set(stopwords.words('english'))
@@ -472,18 +436,33 @@ if __name__ == '__main__':
     number_labels_training, number_labels_test = add_labels_to_samples("cats.txt")
     prior_probs = compute_prior_probabilities(number_labels_training)
     
-    mega_docs, total_num_words, idf = word_vectors_for_mega_docs(dir_path, valid_words, number_labels_training, prior_probs.keys())
-    frequencies, total_frequencies = compute_frequencies_by_class(mega_docs, valid_words, prior_probs.keys())
+    parameters = compute_word_frequencies(dir_path, valid_words, number_labels_training, prior_probs.keys())
+    
+    frequencies = parameters[0]
+    total_frequencies = parameters[1]
+    idf = parameters[2] 
+    total_word_count_by_label = parameters[3]
+    total_num_words = parameters[4]
+
     conditional_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
     complement_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
+    for label, vector in conditional_probs.items():
+        denom = total_num_words - total_word_count_by_label[label] + len(valid_words.keys())
+        for word in vector.keys():
+            mod_cond_freq = frequencies[label][word] + 1
+            mod_comp_freq = (total_frequencies[word] - frequencies[label][word]) + 1
+            conditional_probs[label][word] = np.log(mod_cond_freq/(total_word_count_by_label[label] + len(valid_words.keys())))
+            complement_probs[label][word] = np.log(mod_comp_freq/denom)
 
     '''
+    mega_docs, total_num_words, idf = word_vectors_for_mega_docs(dir_path, valid_words, number_labels_training, prior_probs.keys())
+    frequencies, total_frequencies = compute_frequencies_by_class(mega_docs, valid_words, prior_probs.keys())
     tf_idf_by_label = {label: {word: 0 for word in valid_words} for label in prior_probs.keys()}
     tf_idf_total = {word: 0 for word in valid_words}
     for label, vector in tf_idf_by_label.items():
         for word in vector.keys():
-            tf_idf_by_label[label][word] = (frequencies[label][word] * idf[word])
-            tf_idf_total[word] += (frequencies[label][word] * idf[word])
+            tf_idf_by_label[label][word] = (np.log(frequencies[label][word]+1) * idf[word])
+            tf_idf_total[word] += (np.log(frequencies[label][word]+1) * idf[word])
     for label, vector in tf_idf_by_label.items():
         if label != "earn":
             continue
@@ -493,9 +472,6 @@ if __name__ == '__main__':
                 continue
             print(word, score, tf_idf_total[word])
         print("\n")
-    '''
-
-    '''
     conditional_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
     complement_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
     for label, vector in conditional_probs.items():
@@ -505,8 +481,8 @@ if __name__ == '__main__':
             # Odd, the values of complement_probs are the same regardless of the word, why is that
             # print(label, word, total_frequencies[word], frequencies[label][word])
             complement_probs[label][word] = np.log((tf_idf_total[word] - tf_idf_by_label[label][word] + 1)/denom)
-    '''
-
+    conditional_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
+    complement_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
     for label, vector in conditional_probs.items():
         denom = total_num_words - len(mega_docs[label]) + len(valid_words.keys())
         for word in vector.keys():
@@ -514,19 +490,16 @@ if __name__ == '__main__':
             # Odd, the values of complement_probs are the same regardless of the word, why is that
             # print(label, word, total_frequencies[word], frequencies[label][word])
             complement_probs[label][word] = np.log((total_frequencies[word] - frequencies[label][word] + 1)/denom)
+    '''
 
-    complement_probs_normalized = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
+    complement_probs_normalized = {label: {word: ((np.exp(complement_probs[label][word])-1) * idf[word]) +1 for word in valid_words} 
+                                   for label in prior_probs.keys()}
     for label, vector in complement_probs.items():
-        print(label, normalize_term)
-        normalize_term = np.sqrt(sum([(complement_probs[label][word]**2) for word in valid_words]))
+        normalize_term = np.sqrt(sum([(complement_probs_normalized[label][word]**2) for word in valid_words]))
         for word in vector.keys():
             complement_probs_normalized[label][word] = complement_probs[label][word] / normalize_term
-    '''
-    for label, vector in complement_probs_normalized.items():
-        length = np.sqrt(sum([(complement_probs_normalized[label][word]**2) for word in valid_words]))
-        print(label, length)
-    '''
 
+    '''
     for label, vector in complement_probs.items():
         if label != "earn":
             continue
@@ -536,7 +509,6 @@ if __name__ == '__main__':
                 continue
             print(word, score)
         print("\n")
-
     for label, vector in conditional_probs.items():
         if label != "earn":
             continue
@@ -546,14 +518,13 @@ if __name__ == '__main__':
                 continue
             print(word, score)
         print("\n")
+    '''
 
     prior_probs_normalized = {label: np.log(prior_probs[label]) for label in prior_probs.keys()}
     normalize = np.sqrt(sum([prior_probs_normalized[label]**2 for label in prior_probs.keys()]))
-    for label in prior_probs_normalized.keys():
+    for label, score in sorted(prior_probs_normalized.items(), key=itemgetter(1), reverse=True):
         prior_probs_normalized[label] /= normalize
-    for label, score in sorted(prior_probs.items(), key=itemgetter(1), reverse=True):
-        print(label, score)
-
+        print(label, prior_probs_normalized[label], prior_probs[label])
 
     # Removing the stemmer actually improves accuracy on test set, who knew
     successes, earned, bottom_5,i = 0, 0, 0, 0
@@ -562,10 +533,10 @@ if __name__ == '__main__':
         filepath = dir_path + '\\' + file 
         num = int(file[0:len(file) - 4])
         text = vectorize_text(stop_words, valid_words, filepath)
-        computed_labels = complement_naive_bayes(complement_probs, idf, text, prior_probs)
+        # computed_labels = complement_naive_bayes(complement_probs, idf, text, prior_probs)
         # computed_labels = multinomial_naive_bayes(conditional_probs, idf, text, prior_probs)
-        # computed_labels = weight_normalized_cnb(complement_probs_normalized, idf, text, 
-        #                                        prior_probs_normalized)
+        computed_labels = weight_normalized_cnb(complement_probs_normalized, idf, text, 
+                                               prior_probs_normalized)
         suc, e, b5 = bayes_accuracy_model(num, number_labels_test, computed_labels)
         # Even with using conditional_probs, earn appears in 1773/3019 samples
         
@@ -580,8 +551,20 @@ if __name__ == '__main__':
         # Multinomial Naive Bayes: 84.09% (2538.627561327562) accuracy on test set (????), 1773 "Earn" labels
         # Complement Naive Bayes: 85.09% (2568.913203463204) accuracy on test set, 1687 "Earn" labels
         # Weight Normalized CNB w/ TF-IDF transformation: 76.35% (2304.986291486292), 2131 "Earn" labels
+        # (I FORGOT HOW I GOT THIS AHHHHH)
         # CNB with IDF transformation: 86.76% (2619.324711399711), 1321 "Earn" labels
         # MNB with IDF transformation: 84.87% (2562.234704184704), 1521 "Earn" labels
+        
+        # CNB with doc length normalization: 88.92% accuracy(2684.349675324675), 1242 "Earn" labels
+            # Adding the IDF transformation to CNB drops the accuracy a few percent
+        # MNB with doc length normalization and IDF: 85.57% accuracy (2583.5922438672446), 1761 "Earn" labels
+                # When length normalization is used with MNB it screws up the accuracy a LOT (down to around 2000)
+        # WCNB with doc length normalization and IDF^2: 86.41% accuracy (2608.605230880231), 1312 "Earn" labels
+        
+        # Perhaps the reason that TF doesn't lead to improvements with this is because we already stripped out the 
+        # stop words, which would be affected the most by this technique
+        # It appears as if there isn't much dependence within the documents in the Reuters dataset because
+        # the weight normalization term doesn't appear to do much.
         successes += suc
         earned += e
         bottom_5 += b5
