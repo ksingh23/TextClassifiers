@@ -23,8 +23,7 @@ import datetime
 from operator import itemgetter
 
 
-def weight_normalized_cnb(complement_probs, idf, vectorized_text, 
-                          prior_probs):
+def weight_normalized_cnb(complement_probs_normalized, vectorized_text, prior_probs):
     '''
     :param complement_probs: dictionary where key = label and values = dictionary where
                             keys = words and values = (# of times word w appears in docs
@@ -40,12 +39,12 @@ def weight_normalized_cnb(complement_probs, idf, vectorized_text,
     for label in prior_probs.keys():
         conditional = 0.0
         for word in freq.keys():
-            conditional += (freq[word] * complement_probs[label][word])
-        labels.append((label, conditional))
+            conditional += (freq[word] * complement_probs_normalized[label][word])
+        labels.append((label, np.exp(conditional)))
     return sorted(labels, key=itemgetter(1))
 
 
-def complement_naive_bayes(complement_probs, idf, vectorized_text, prior_probs_normalized, prior_probs):
+def complement_naive_bayes(complement_probs, vectorized_text, prior_probs):
     '''
     :param complement_probs: dictionary where key = label and values = dictionary where
                             keys = words and values = (# of times word w appears in docs
@@ -63,13 +62,10 @@ def complement_naive_bayes(complement_probs, idf, vectorized_text, prior_probs_n
             doc_denom += (np.log(prior_probs[label]) + (freq[word]/len(vectorized_text) * complement_probs[label][word]))
     print(doc_denom)
     '''
-    normalization_term = np.sqrt(sum([freq[word]**2 for word in freq.keys()]))
     for label in prior_probs.keys():
-        prob = prior_probs_normalized[label]
         conditional = 0.0
         for word in freq.keys():
             conditional += (freq[word] * complement_probs[label][word])
-        prob -= conditional
         labels.append((label, conditional))
     return sorted(labels, key=itemgetter(1))
 
@@ -89,7 +85,7 @@ def multinomial_naive_bayes(conditional_probs, vectorized_text, prior_probs):
         for word in vectorized_text:
             if conditional_probs[label][word] != 0.0:
                 conditional += (freq[word] * conditional_probs[label][word])
-        labels.append((label, conditional))
+        labels.append((label, np.exp(conditional)))
     return sorted(labels, key=itemgetter(1), reverse=True)
 
 
@@ -101,12 +97,6 @@ def bayes_accuracy_model(num, number_labels, labels):
                             values = the set of labels associated with
                             that sample
     :param labels: the set of labels computed by Naive Bayes
-    rye 0.00012871669455528383
-    groundnut-oil 0.00012871669455528383
-    cotton-oil 0.00012871669455528383
-    castor-oil 0.00012871669455528383
-    nkr 0.00012871669455528383
-    sun-meal 0.00012871669455528383
     '''
     sample_labels = number_labels[num]
     successes = 0
@@ -134,6 +124,35 @@ def bayes_accuracy_model(num, number_labels, labels):
     return [successes,earned, bottom_5_times]
 
 
+def compute_precision_recall(computed_label_set, number_labels, label_list):
+    '''
+    '''
+    precision = {label: 0.0 for label in label_list}
+    recall = {label: 0.0 for label in label_list}
+    precision_denom = {label: 0.0 for label in label_list}
+    recall_denom = {label: 0.0 for label in label_list}
+    for num in computed_label_set.keys():
+        computed_labels = computed_label_set[num]
+        actual_labels = number_labels[num] 
+        computed_labels = computed_labels[:len(actual_labels)]
+        for l in computed_labels:  # Positive prediction
+            precision_denom[l] += 1
+            if l in actual_labels: # True positive
+                precision[l] += 1
+                recall[l] += 1
+                recall_denom[l] += 1                
+            diff = set(actual_labels).difference(set(computed_labels))
+            for label in diff:
+                recall_denom[label] += 1
+    total_precision = sum([v for v in precision.values()])
+    total_precision_denom = sum([v for v in precision_denom.values()])
+    total_precision /= total_precision_denom
+    total_recall = sum([v for v in recall.values()])
+    total_recall_denom = sum([v for v in recall_denom.values()])
+    total_recall /= total_recall_denom
+    return [total_precision, total_recall]
+
+
 def vectorize_text(valid_words, filepath):
     '''
     This function removes non valid words from the text to put it into
@@ -150,29 +169,6 @@ def vectorize_text(valid_words, filepath):
         words = [word.lower() for word in words]
         new_words = [word.lower() for word in words if word in valid_words]
     return new_words
-
-
-def compute_total_word_frequencies(dir_path, valid_words):
-    '''
-    :param dir_path: a path to the directory containing all the training samples
-    :param valid_words: a dictionary where the keys are all the unique, valid
-                        terms are present in the text file
-    :param st: Lancaster Stemmer object 
-    :return: a dictionary where keys = words and values = # of documents in which
-            that word appears 
-    '''
-    frequencies = {word: 0 for word in valid_words}
-    for file in os.listdir(dir_path):
-        with open(dir_path + '\\' + file, "r") as f:
-            content = f.read()
-            num = int(file[0:len(file) - 4]) 
-            words = nltk.word_tokenize(content)
-            new_words = [word.lower() for word in words if word not in stop_words]
-            new_words = [word.lower() for word in new_words if word in valid_words.keys()]
-            new_words = set(new_words)
-            for word in new_words:
-                frequencies[word] += 1
-    return frequencies
 
 
 def get_valid_words(dir_path, stop_words):
@@ -265,33 +261,7 @@ def rename_files(dir_path):
         os.rename(filepath, filepath+".txt")
 
 
-def compute_frequencies_by_class(mega_docs, valid_words, label_list):
-    '''
-    This function computes the frequencies of all words by class. This is done because
-    the outright frequencies are needed for Naive Bayes and conditional_probs can easily
-    be obtained from this by dividing each entry by the number of elements in each "mega doc"
-    :param mega_docs: a dictionary where keys = labels and values = vectors of all the
-                        valid words present in documents with that label
-    :param valid_words: a dictionary where the keys are all the unique, valid
-                        terms are present in the text file
-    :param label_list: list of all unique labels in the dataset
-    :return: a dictionary where keys = labels and values = dictionary where keys = words
-                and values = frequencies of that word in docs with that label
-            AND
-            a dictionary where keys = words and values = the total frequency of those words
-            all documents throughout the corpus
-    '''
-    frequencies = {label: {word: 0 for word in valid_words} for label in label_list}
-    total_frequencies = {word:0 for word in valid_words}
-    for label, vector in mega_docs.items():
-        freq = Counter(vector)
-        for word in freq.keys():
-            frequencies[label][word] += freq[word]
-            total_frequencies[word] += freq[word]
-    return [frequencies, total_frequencies]
-
-
-def compute_word_frequencies(dir_path, valid_words, number_labels, label_list):
+def get_parameters(dir_path, valid_words, number_labels, label_list):
     '''
     This function will iterate over the documents and compute the frequencies of 
     the words by label and in total
@@ -358,7 +328,7 @@ if __name__ == '__main__':
     number_labels_training, number_labels_test = add_labels_to_samples("cats.txt")
     prior_probs = compute_prior_probabilities(number_labels_training)
     
-    parameters = compute_word_frequencies(dir_path, valid_words, number_labels_training, prior_probs.keys())
+    parameters = get_parameters(dir_path, valid_words, number_labels_training, prior_probs.keys())
     
     frequencies = parameters[0]
     total_frequencies = parameters[1]
@@ -387,37 +357,33 @@ if __name__ == '__main__':
 
     complement_probs_normalized = {label: {word: complement_probs[label][word] for word in valid_words} 
                                    for label in prior_probs.keys()}
+    conditional_probs_normalized = {label :{word: 0.0 for word in valid_words} for label in prior_probs.keys()}
+    normalize_terms = {label: 0.0 for label in prior_probs.items()}
     for label, vector in complement_probs.items():
-        normalize_term = np.sqrt(sum([(complement_probs_normalized[label][word]**2) for word in valid_words]))
+        normalize_term_1 = np.sqrt(sum([(complement_probs_normalized[label][word]**2) for word in valid_words]))
+        normalize_term_2 = np.sqrt(sum([(conditional_probs[label][word]**2) for word in valid_words]))
+        normalize_terms[label] = normalize_term_1
         for word in vector.keys():
-            complement_probs_normalized[label][word] /= normalize_term
+            complement_probs_normalized[label][word] /= normalize_term_1
+            conditional_probs_normalized[label][word] = conditional_probs[label][word] / normalize_term_2
 
     # Removing the stemmer actually improves accuracy on test set, who knew
     successes, earned, bottom_5,i = 0, 0, 0, 0
+    computed_label_set = defaultdict(list)
     dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\Text Classifiers\\test"
     for file in os.listdir(dir_path):
         filepath = dir_path + '\\' + file 
         num = int(file[0:len(file) - 4])
         text = vectorize_text(valid_words, filepath)
-        # computed_labels = complement_naive_bayes(complement_probs, idf, text, prior_probs_normalized, prior_probs)
-        # computed_labels = multinomial_naive_bayes(conditional_probs, text, prior_probs)
-        computed_labels = weight_normalized_cnb(complement_probs_normalized, idf, text, 
-                                               prior_probs)
+        # computed_labels = complement_naive_bayes(complement_probs, text, prior_probs)
+        # computed_labels = multinomial_naive_bayes(conditional_probs_normalized, text, prior_probs)
+        computed_labels = weight_normalized_cnb(complement_probs_normalized, text, prior_probs)
         suc, e, b5 = bayes_accuracy_model(num, number_labels_test, computed_labels)
-        # Even with using conditional_probs, earn appears in 1773/3019 samples
-        
-        # CNB brought earn labels down to 1170/3019, which is the best improvement so far
-             
-        # Multinomial Naive Bayes: 84.09% (2538.627561327562) accuracy on test set (????), 1773 "Earn" labels
-        # Complement Naive Bayes: 85.09% (2568.913203463204) accuracy on test set, 1687 "Earn" labels
-        # Weight Normalized CNB w/ TF-IDF transformation: 76.35% (2304.986291486292), 2131 "Earn" labels
-        # (I FORGOT HOW I GOT THIS AHHHHH)
-        # CNB with IDF transformation: 86.76% (2619.324711399711), 1321 "Earn" labels
-        # MNB with IDF transformation: 84.87% (2562.234704184704), 1521 "Earn" labels
-        
+        computed_label_set[num] = [x for x,y in computed_labels]
         # MNB with doc length normalization, IDF: 86.10% accuracy (2599.288708513709), 1548 "Earn" labels
-        # CNB with doc length normalization, IDF: 86.93% accuracy(2624.394769119769), 1312 "Earn" labels
-        # WCNB with doc length normalization and IDF^2: 87.72% accuracy (2648.141955266955), 1542 "Earn" labels
+        # CNB with doc length normalization, IDF: 90.02% accuracy(2717.798340548341), 1130 "Earn" labels
+        # However, this approach results in conditional terms that don't make much sense for precision or recall
+        # WCNB with doc length normalization, IDF: 87.72% accuracy (2648.141955266955), 1542 "Earn" labels
         
         # Perhaps the reason that TF doesn't lead to improvements with this is because we already stripped out the 
         # stop words, which would be affected the most by this technique
@@ -427,5 +393,8 @@ if __name__ == '__main__':
         bottom_5 += b5
         i += 1
     print(successes, earned, bottom_5, i)
+
+    precision, recall = compute_precision_recall(computed_label_set, number_labels_test, prior_probs.keys())
+    print(precision, recall)
 
 
