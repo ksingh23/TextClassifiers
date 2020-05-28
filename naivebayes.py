@@ -18,9 +18,9 @@ import os.path
 import os
 import nltk
 from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
 import datetime
 from operator import itemgetter
+import preprocessing as pp
 
 
 def weight_normalized_cnb(complement_probs_normalized, vectorized_text, prior_probs):
@@ -54,14 +54,7 @@ def complement_naive_bayes(complement_probs, vectorized_text, prior_probs):
                         of seeing that label in the dataset
     '''
     labels = []
-    doc_denom = 0
     freq = Counter(vectorized_text)
-    '''
-    for word in freq.keys():
-        for label in prior_probs.keys():
-            doc_denom += (np.log(prior_probs[label]) + (freq[word]/len(vectorized_text) * complement_probs[label][word]))
-    print(doc_denom)
-    '''
     for label in prior_probs.keys():
         conditional = 0.0
         for word in freq.keys():
@@ -125,8 +118,6 @@ def bayes_accuracy_model(num, number_labels, labels):
 
 
 def compute_precision_recall(computed_label_set, number_labels, label_list):
-    '''
-    '''
     precision = {label: 0.0 for label in label_list}
     recall = {label: 0.0 for label in label_list}
     precision_denom = {label: 0.0 for label in label_list}
@@ -153,132 +144,24 @@ def compute_precision_recall(computed_label_set, number_labels, label_list):
     return [total_precision, total_recall]
 
 
-def vectorize_text(valid_words, filepath):
-    '''
-    This function removes non valid words from the text to put it into
-    the Naive Bayes classifier
-    :param stop_words: a set of words like "the", "and", etc
-                        that should be stripped out of any computations
-    :param valid_words: dictionary where keys = valid words in the corpus
-    :param filepath: path to the text file
-    :return: a vector of text stripped of stop words and non-valid words
-    '''
-    with open(filepath, "r") as f:
-        content = f.read()
-        words = nltk.word_tokenize(content)
-        words = [word.lower() for word in words]
-        new_words = [word.lower() for word in words if word in valid_words]
-    return new_words
-
-
-def get_valid_words(dir_path, stop_words):
-    '''
-    Utility function that determines the set of valid words 
-    to be used for classification and probability calculation
-    :param dir_path: a path to the directory containing 
-                    all the training samples
-    :param stop_words: a set of words like "the", "and", etc
-                        that should be stripped out of any computations
-    :return: a Python dictionary where the keys = valid words and the 
-            values = True, so we can use "key in dict" for future access
-            in guaranteed constant time
-    '''
-    valid_words = defaultdict(bool)
-    for file in os.listdir(dir_path):
-        with open(dir_path + '\\' + file, "r") as f:
-            content = f.read()
-            words = nltk.word_tokenize(content)
-            new_words = [word.lower() for word in words]
-            new_words = [word.lower() for word in new_words if word.isalpha()]
-            new_words = [word.lower() for word in new_words if word not in stop_words]
-            new_words = set(new_words)
-            for word in new_words:
-                valid_words[word] = True
-    return valid_words
-            
-
-
-def add_labels_to_samples(filename):
-    '''
-    This function iterates over the file containing all 
-    labels for each numbered sample, and maps them together with
-    a dictionary
-    :param filename: path to the file with all the labels in it (assumes
-                    the file is located in this directory)
-    :return: a dictionary with keys = number of the training sample and
-            values = the set of labels associated with it
-            AND
-            the same, but with the test samples. Keep them separate for easy
-            access later
-    '''
-    number_labels_training = defaultdict(list)
-    number_labels_test = defaultdict(list)
-    with open(filename, "r") as f:
-        for line in f:
-            terms = line.split()
-            if line[0:4] == "test":
-                num = int(terms[0][5:len(terms[0])])  # Test number, so we can map this back to the proper label(s) later on
-                number_labels_test[num] = terms[1:]
-            else:
-                num = int(terms[0][9:len(terms[0])])  
-                number_labels_training[num] = terms[1:]
-    return [number_labels_training, number_labels_test]
-
-
-def compute_prior_probabilities(number_labels):
-    '''
-    This function will compute the prior probabilities
-    P(y) = probability of seeing a label with a sample. 
-    Note: since many samples have multiple labels, these prior
-    probabilites will sum to > 1
-    :param number_labels: dictionary where keys = number of training sample
-                            and value = the list of labels associated with it
-    :return: a dictionary where keys = the label and value = probability of seeing
-            that label in the document list
-    '''
-    prior_probs = defaultdict(float)
-    i = 0
-    for num, labels in number_labels.items():
-        for l in labels:
-            if not prior_probs[l]:
-                prior_probs[l] = 1
-            else:
-                prior_probs[l] += 1
-        i += 1
-    for label, freq in prior_probs.items():
-        prior_probs[label] /= i
-    return prior_probs
-
-
-def rename_files(dir_path):
-    '''
-    Utility function designed to rename all files in any directory
-    to a .txt file so they can be read from
-    :param dir_path: directory of the files to be renamed
-    '''
-    for file in os.listdir(dir_path):
-        filepath = dir_path + '\\' + file 
-        os.rename(filepath, filepath+".txt")
-
-
 def get_parameters(dir_path, valid_words, number_labels, label_list):
     '''
-    This function will iterate over the documents and compute the frequencies of 
+    This function will iterate over the documents and compute the frequencies of
     the words by label and in total
     :param dir_path: a path to the directory containing all the training samples
     :param valid_words: a dictionary where the keys are all the unique, valid
                         terms are present in the text file
-    :param number_labels: dictionary where keys = document # and values = the set of 
+    :param number_labels: dictionary where keys = document # and values = the set of
                             labels associated with those labels
     :param label_list: list of all the unique labels
-    :return: a dictionary where keys = labels and values = dictionary where keys 
+    :return: a dictionary where keys = labels and values = dictionary where keys
             = words and values = the frequencies of that word in documents with that label
-            AND 
+            AND
             a dictionary where keys = words and values = the total # of occurrences of
             that word
             AND
             a dictionary where keys = words and values = the idf score for that word
-            AND 
+            AND
             a dictionary where keys = labels and values = the total # of words associated with that label
             AND
             the total # of valid words in the entire corpus
@@ -286,7 +169,7 @@ def get_parameters(dir_path, valid_words, number_labels, label_list):
     words_by_doc_num = defaultdict()
     idf = {word: 0.0 for word in valid_words}
     total_num_words = 0
-    total_word_count_by_label = {label: 0 for label in label_list}    
+    total_word_count_by_label = {label: 0 for label in label_list}
     i = 0
     for file in os.listdir(dir_path):
         with open(dir_path + '\\' + file, "r") as f:
@@ -305,8 +188,8 @@ def get_parameters(dir_path, valid_words, number_labels, label_list):
                 total_word_count_by_label[l] += len(new_words)
             i += 1
     for word in idf.keys():
-        idf[word] = 1 + np.log(i/(idf[word]+1))      
-    frequencies = {label: {word: 0.0 for word in valid_words} for label in label_list} 
+        idf[word] = 1 + np.log(i/(idf[word]+1))
+    frequencies = {label: {word: 0.0 for word in valid_words} for label in label_list}
     total_frequencies = {word: 0 for word in valid_words}
     for num in words_by_doc_num.keys():
         freq = words_by_doc_num[num]
@@ -324,9 +207,9 @@ def get_parameters(dir_path, valid_words, number_labels, label_list):
 if __name__ == '__main__':
     dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\Text Classifiers\\training"
     stop_words = set(stopwords.words('english'))
-    valid_words = get_valid_words(dir_path, stop_words)
-    number_labels_training, number_labels_test = add_labels_to_samples("cats.txt")
-    prior_probs = compute_prior_probabilities(number_labels_training)
+    valid_words = pp.get_valid_words(dir_path, stop_words)
+    number_labels_training, number_labels_test = pp.add_labels_to_samples("cats.txt")
+    prior_probs = pp.compute_prior_probabilities(number_labels_training)
     
     parameters = get_parameters(dir_path, valid_words, number_labels_training, prior_probs.keys())
     
@@ -336,14 +219,6 @@ if __name__ == '__main__':
     total_word_count_by_label = parameters[3]
     total_num_words = parameters[4]
 
-    for label, vector in frequencies.items():
-        if label != "earn":
-            continue
-        print("Label:", label)
-        for word, score in sorted(vector.items(), key=itemgetter(1), reverse=True):
-            if score == 0.0:
-                continue
-            print(word, score)
 
     conditional_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
     complement_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
@@ -367,17 +242,16 @@ if __name__ == '__main__':
             complement_probs_normalized[label][word] /= normalize_term_1
             conditional_probs_normalized[label][word] = conditional_probs[label][word] / normalize_term_2
 
-    # Removing the stemmer actually improves accuracy on test set, who knew
     successes, earned, bottom_5,i = 0, 0, 0, 0
     computed_label_set = defaultdict(list)
     dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\Text Classifiers\\test"
     for file in os.listdir(dir_path):
         filepath = dir_path + '\\' + file 
         num = int(file[0:len(file) - 4])
-        text = vectorize_text(valid_words, filepath)
-        # computed_labels = complement_naive_bayes(complement_probs, text, prior_probs)
+        text = pp.vectorize_text(valid_words, filepath)
+        computed_labels = complement_naive_bayes(complement_probs, text, prior_probs)
         # computed_labels = multinomial_naive_bayes(conditional_probs_normalized, text, prior_probs)
-        computed_labels = weight_normalized_cnb(complement_probs_normalized, text, prior_probs)
+        # computed_labels = weight_normalized_cnb(complement_probs_normalized, text, prior_probs)
         suc, e, b5 = bayes_accuracy_model(num, number_labels_test, computed_labels)
         computed_label_set[num] = [x for x,y in computed_labels]
         # MNB with doc length normalization, IDF: 86.10% accuracy (2599.288708513709), 1548 "Earn" labels
