@@ -16,11 +16,13 @@ import numpy as np
 from collections import defaultdict, Counter
 import os.path
 import os
+import preprocessing as pp
 import nltk
 from nltk.corpus import stopwords
+import featureselection as fs
+from nltk.tokenize import word_tokenize
 import datetime
 from operator import itemgetter
-import preprocessing as pp
 
 
 def weight_normalized_cnb(complement_probs_normalized, vectorized_text, prior_probs):
@@ -54,7 +56,14 @@ def complement_naive_bayes(complement_probs, vectorized_text, prior_probs):
                         of seeing that label in the dataset
     '''
     labels = []
+    doc_denom = 0
     freq = Counter(vectorized_text)
+    '''
+    for word in freq.keys():
+        for label in prior_probs.keys():
+            doc_denom += (np.log(prior_probs[label]) + (freq[word]/len(vectorized_text) * complement_probs[label][word]))
+    print(doc_denom)
+    '''
     for label in prior_probs.keys():
         conditional = 0.0
         for word in freq.keys():
@@ -82,86 +91,60 @@ def multinomial_naive_bayes(conditional_probs, vectorized_text, prior_probs):
     return sorted(labels, key=itemgetter(1), reverse=True)
 
 
-def bayes_accuracy_model(num, number_labels, labels):
+def compute_prior_probabilities(number_labels):
     '''
-    :param num: the number of the document being checked, so we can check
-                the correct labels for it
-    :param number_labels: dictionary where keys = number of sample and
-                            values = the set of labels associated with
-                            that sample
-    :param labels: the set of labels computed by Naive Bayes
+    This function will compute the prior probabilities
+    P(y) = probability of seeing a label with a sample. 
+    Note: since many samples have multiple labels, these prior
+    probabilites will sum to > 1
+    :param number_labels: dictionary where keys = number of training sample
+                            and value = the list of labels associated with it
+    :return: a dictionary where keys = the label and value = probability of seeing
+            that label in the document list
     '''
-    sample_labels = number_labels[num]
-    successes = 0
-    earned = 0
-    bottom_5_times = 0
-    bottom_5 = ['rye', 'groundnut-oil', 'cotton-oil', 'castor-oil', 'nkr', 'sun-meal']
-    computed_labels = [x for x,y in labels]
-    if "earn" in computed_labels[:3]:
-        earned += 1
-    computed_labels_trim = computed_labels[:len(sample_labels)]
-    for label in bottom_5:
-        if label in computed_labels[:5]:
-            bottom_5_times += 1
-            break
-    if all(x in computed_labels_trim for x in sample_labels):
-        successes += 1
-    else:
-        print(num)
-        print(sample_labels, labels[:10])
-        diff = set(sample_labels).difference(set(computed_labels_trim))
-        score = len(computed_labels_trim) - len(diff)
-        score /= len(computed_labels_trim)
-        if len(diff) < len(computed_labels_trim):
-            successes += score
-    return [successes,earned, bottom_5_times]
+    prior_probs = defaultdict(float)
+    i = 0
+    for num, labels in number_labels.items():
+        for l in labels:
+            if not prior_probs[l]:
+                prior_probs[l] = 1
+            else:
+                prior_probs[l] += 1
+        i += 1
+    for label, freq in prior_probs.items():
+        prior_probs[label] /= i
+    return prior_probs
 
 
-def compute_precision_recall(computed_label_set, number_labels, label_list):
-    precision = {label: 0.0 for label in label_list}
-    recall = {label: 0.0 for label in label_list}
-    precision_denom = {label: 0.0 for label in label_list}
-    recall_denom = {label: 0.0 for label in label_list}
-    for num in computed_label_set.keys():
-        computed_labels = computed_label_set[num]
-        actual_labels = number_labels[num] 
-        computed_labels = computed_labels[:len(actual_labels)]
-        for l in computed_labels:  # Positive prediction
-            precision_denom[l] += 1
-            if l in actual_labels: # True positive
-                precision[l] += 1
-                recall[l] += 1
-                recall_denom[l] += 1                
-            diff = set(actual_labels).difference(set(computed_labels))
-            for label in diff:
-                recall_denom[label] += 1
-    total_precision = sum([v for v in precision.values()])
-    total_precision_denom = sum([v for v in precision_denom.values()])
-    total_precision /= total_precision_denom
-    total_recall = sum([v for v in recall.values()])
-    total_recall_denom = sum([v for v in recall_denom.values()])
-    total_recall /= total_recall_denom
-    return [total_precision, total_recall]
+def rename_files(dir_path):
+    '''
+    Utility function designed to rename all files in any directory
+    to a .txt file so they can be read from
+    :param dir_path: directory of the files to be renamed
+    '''
+    for file in os.listdir(dir_path):
+        filepath = dir_path + '\\' + file 
+        os.rename(filepath, filepath+".txt")
 
 
 def get_parameters(dir_path, valid_words, number_labels, label_list):
     '''
-    This function will iterate over the documents and compute the frequencies of
+    This function will iterate over the documents and compute the frequencies of 
     the words by label and in total
     :param dir_path: a path to the directory containing all the training samples
     :param valid_words: a dictionary where the keys are all the unique, valid
                         terms are present in the text file
-    :param number_labels: dictionary where keys = document # and values = the set of
+    :param number_labels: dictionary where keys = document # and values = the set of 
                             labels associated with those labels
     :param label_list: list of all the unique labels
-    :return: a dictionary where keys = labels and values = dictionary where keys
+    :return: a dictionary where keys = labels and values = dictionary where keys 
             = words and values = the frequencies of that word in documents with that label
-            AND
+            AND 
             a dictionary where keys = words and values = the total # of occurrences of
             that word
             AND
             a dictionary where keys = words and values = the idf score for that word
-            AND
+            AND 
             a dictionary where keys = labels and values = the total # of words associated with that label
             AND
             the total # of valid words in the entire corpus
@@ -169,7 +152,7 @@ def get_parameters(dir_path, valid_words, number_labels, label_list):
     words_by_doc_num = defaultdict()
     idf = {word: 0.0 for word in valid_words}
     total_num_words = 0
-    total_word_count_by_label = {label: 0 for label in label_list}
+    total_word_count_by_label = {label: 0 for label in label_list}    
     i = 0
     for file in os.listdir(dir_path):
         with open(dir_path + '\\' + file, "r") as f:
@@ -188,8 +171,8 @@ def get_parameters(dir_path, valid_words, number_labels, label_list):
                 total_word_count_by_label[l] += len(new_words)
             i += 1
     for word in idf.keys():
-        idf[word] = 1 + np.log(i/(idf[word]+1))
-    frequencies = {label: {word: 0.0 for word in valid_words} for label in label_list}
+        idf[word] = 1 + np.log(i/(idf[word]+1))      
+    frequencies = {label: {word: 0.0 for word in valid_words} for label in label_list} 
     total_frequencies = {word: 0 for word in valid_words}
     for num in words_by_doc_num.keys():
         freq = words_by_doc_num[num]
@@ -205,12 +188,13 @@ def get_parameters(dir_path, valid_words, number_labels, label_list):
 
 
 if __name__ == '__main__':
-    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\Text Classifiers\\training"
+    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\TextClassifiers\\training"
     stop_words = set(stopwords.words('english'))
-    valid_words = pp.get_valid_words(dir_path, stop_words)
-    number_labels_training, number_labels_test = pp.add_labels_to_samples("cats.txt")
-    prior_probs = pp.compute_prior_probabilities(number_labels_training)
-    
+    valid_words = fs.most_useful_features("cdmfeatures.txt")
+    # valid_words = pp.get_valid_words(dir_path, stop_words)
+    number_labels_training, number_labels_test = pp.add_labels_to_samples("cats2.txt")
+    prior_probs = compute_prior_probabilities(number_labels_training)
+    print(prior_probs.keys())
     parameters = get_parameters(dir_path, valid_words, number_labels_training, prior_probs.keys())
     
     frequencies = parameters[0]
@@ -218,7 +202,6 @@ if __name__ == '__main__':
     idf = parameters[2] 
     total_word_count_by_label = parameters[3]
     total_num_words = parameters[4]
-
 
     conditional_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
     complement_probs = {label: {word: 0.0 for word in valid_words} for label in prior_probs.keys()}
@@ -242,9 +225,10 @@ if __name__ == '__main__':
             complement_probs_normalized[label][word] /= normalize_term_1
             conditional_probs_normalized[label][word] = conditional_probs[label][word] / normalize_term_2
 
+    # Removing the stemmer actually improves accuracy on test set, who knew
     successes, earned, bottom_5,i = 0, 0, 0, 0
     computed_label_set = defaultdict(list)
-    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\Text Classifiers\\test"
+    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\TextClassifiers\\test"
     for file in os.listdir(dir_path):
         filepath = dir_path + '\\' + file 
         num = int(file[0:len(file) - 4])
@@ -252,7 +236,7 @@ if __name__ == '__main__':
         computed_labels = complement_naive_bayes(complement_probs, text, prior_probs)
         # computed_labels = multinomial_naive_bayes(conditional_probs_normalized, text, prior_probs)
         # computed_labels = weight_normalized_cnb(complement_probs_normalized, text, prior_probs)
-        suc, e, b5 = bayes_accuracy_model(num, number_labels_test, computed_labels)
+        suc, e, b5 = pp.accuracy_model(num, number_labels_test, computed_labels)
         computed_label_set[num] = [x for x,y in computed_labels]
         # MNB with doc length normalization, IDF: 86.10% accuracy (2599.288708513709), 1548 "Earn" labels
         # CNB with doc length normalization, IDF: 90.02% accuracy(2717.798340548341), 1130 "Earn" labels
@@ -268,7 +252,7 @@ if __name__ == '__main__':
         i += 1
     print(successes, earned, bottom_5, i)
 
-    precision, recall = compute_precision_recall(computed_label_set, number_labels_test, prior_probs.keys())
+    precision, recall = pp.compute_precision_recall(computed_label_set, number_labels_test, prior_probs.keys())
     print(precision, recall)
 
 

@@ -1,7 +1,42 @@
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import os.path
 import os
 import nltk
+
+
+def accuracy_model(num, number_labels, labels):
+    '''
+    :param num: the number of the document being checked, so we can check
+                the correct labels for it
+    :param number_labels: dictionary where keys = number of sample and
+                            values = the set of labels associated with
+                            that sample
+    :param labels: the set of labels computed by Naive Bayes
+    '''
+    sample_labels = number_labels[num]
+    successes = 0
+    earned = 0
+    bottom_5_times = 0
+    bottom_5 = ['rye', 'groundnut-oil', 'cotton-oil', 'castor-oil', 'nkr', 'sun-meal']
+    computed_labels = [x for x,y in labels]
+    if "earn" in computed_labels[:3]:
+        earned += 1
+    computed_labels_trim = computed_labels[:len(sample_labels)]
+    for label in bottom_5:
+        if label in computed_labels[:5]:
+            bottom_5_times += 1
+            break
+    if all(x in computed_labels_trim for x in sample_labels):
+        successes += 1
+    else:
+        print(num)
+        print(sample_labels, labels[:10])
+        diff = set(sample_labels).difference(set(computed_labels_trim))
+        score = len(computed_labels_trim) - len(diff)
+        score /= len(computed_labels_trim)
+        if len(diff) < len(computed_labels_trim):
+            successes += score
+    return [successes, earned, bottom_5_times]
 
 
 def compute_prior_probabilities(number_labels):
@@ -90,7 +125,7 @@ def get_valid_words(dir_path, stop_words):
             new_words = set(new_words)
             for word in new_words:
                 valid_words[word] = True
-    return valid_words
+    return OrderedDict(sorted(valid_words.items(), key=lambda t: t[0]))
 
 
 def vectorize_text(valid_words, filepath):
@@ -109,3 +144,34 @@ def vectorize_text(valid_words, filepath):
         words = [word.lower() for word in words]
         new_words = [word.lower() for word in words if word in valid_words]
     return new_words
+
+
+def compute_precision_recall(computed_label_set, number_labels, label_list):
+    '''
+    '''
+    precision = {label: 0.0 for label in label_list}
+    recall = {label: 0.0 for label in label_list}
+    precision_denom = {label: 0.0 for label in label_list}
+    recall_denom = {label: 0.0 for label in label_list}
+    for num in computed_label_set.keys():
+        computed_labels = computed_label_set[num]
+        actual_labels = number_labels[num] 
+        computed_labels = computed_labels[:len(actual_labels)]
+        for l in computed_labels:  # Positive prediction
+            precision_denom[l] += 1
+            if l in actual_labels: # True positive
+                precision[l] += 1
+                recall[l] += 1
+                recall_denom[l] += 1                
+            diff = set(actual_labels).difference(set(computed_labels))
+            for label in diff:
+                recall_denom[label] += 1
+    total_precision = sum([v for v in precision.values()])
+    total_precision_denom = sum([v for v in precision_denom.values()])
+    total_precision /= total_precision_denom
+    total_recall = sum([v for v in recall.values()])
+    total_recall_denom = sum([v for v in recall_denom.values()])
+    total_recall /= total_recall_denom
+    return [total_precision, total_recall]
+
+
