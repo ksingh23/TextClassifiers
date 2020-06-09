@@ -17,11 +17,8 @@ from collections import defaultdict, Counter
 import os.path
 import os
 import preprocessing as pp
-import nltk
 from nltk.corpus import stopwords
 import featureselection as fs
-from nltk.tokenize import word_tokenize
-import datetime
 from operator import itemgetter
 
 
@@ -111,8 +108,6 @@ def compute_prior_probabilities(number_labels):
             else:
                 prior_probs[l] += 1
         i += 1
-    for label, freq in prior_probs.items():
-        prior_probs[label] /= i
     return prior_probs
 
 
@@ -127,79 +122,18 @@ def rename_files(dir_path):
         os.rename(filepath, filepath+".txt")
 
 
-def get_parameters(dir_path, valid_words, number_labels, label_list):
-    '''
-    This function will iterate over the documents and compute the frequencies of 
-    the words by label and in total
-    :param dir_path: a path to the directory containing all the training samples
-    :param valid_words: a dictionary where the keys are all the unique, valid
-                        terms are present in the text file
-    :param number_labels: dictionary where keys = document # and values = the set of 
-                            labels associated with those labels
-    :param label_list: list of all the unique labels
-    :return: a dictionary where keys = labels and values = dictionary where keys 
-            = words and values = the frequencies of that word in documents with that label
-            AND 
-            a dictionary where keys = words and values = the total # of occurrences of
-            that word
-            AND
-            a dictionary where keys = words and values = the idf score for that word
-            AND 
-            a dictionary where keys = labels and values = the total # of words associated with that label
-            AND
-            the total # of valid words in the entire corpus
-    '''
-    words_by_doc_num = defaultdict()
-    idf = {word: 0.0 for word in valid_words}
-    total_num_words = 0
-    total_word_count_by_label = {label: 0 for label in label_list}    
-    i = 0
-    for file in os.listdir(dir_path):
-        with open(dir_path + '\\' + file, "r") as f:
-            content = f.read()
-            num = int(file[0:len(file) - 4])
-            labels = number_labels[num]
-            words = nltk.word_tokenize(content)
-            new_words = [word.lower() for word in words]
-            new_words = [word.lower() for word in new_words if word in valid_words]
-            total_num_words += len(new_words)
-            freq = Counter(new_words)
-            words_by_doc_num[num] = freq
-            for word in freq.keys():
-                idf[word] += 1
-            for l in labels:
-                total_word_count_by_label[l] += len(new_words)
-            i += 1
-    for word in idf.keys():
-        idf[word] = 1 + np.log(i/(idf[word]+1))      
-    frequencies = {label: {word: 0.0 for word in valid_words} for label in label_list} 
-    total_frequencies = {word: 0 for word in valid_words}
-    for num in words_by_doc_num.keys():
-        freq = words_by_doc_num[num]
-        labels = number_labels[num]
-        normalization_term = np.sqrt(sum([score**2 for word, score in freq.items()]))
-        for l in labels:
-            total_word_count_by_label[l] += len(new_words)
-            for word in freq.keys():
-                term_to_add = freq[word] * idf[word]
-                frequencies[l][word] += (term_to_add/normalization_term)
-                total_frequencies[word] += (term_to_add/normalization_term)
-    return [frequencies, total_frequencies, idf, total_word_count_by_label, total_num_words]
-
-
 if __name__ == '__main__':
     dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\TextClassifiers\\training"
     stop_words = set(stopwords.words('english'))
-    valid_words = fs.most_useful_features("cdmfeatures.txt")
-    # valid_words = pp.get_valid_words(dir_path, stop_words)
     number_labels_training, number_labels_test = pp.add_labels_to_samples("cats2.txt")
+    # valid_words = fs.most_useful_features("cdmfeatures.txt")
     prior_probs = compute_prior_probabilities(number_labels_training)
-    print(prior_probs.keys())
-    parameters = get_parameters(dir_path, valid_words, number_labels_training, prior_probs.keys())
+    valid_words_by_label, valid_words = pp.get_valid_words(dir_path, stop_words, prior_probs.keys(), number_labels_training)
+    parameters = pp.get_parameters(dir_path, valid_words, number_labels_training, prior_probs.keys())
     
     frequencies = parameters[0]
     total_frequencies = parameters[1]
-    idf = parameters[2] 
+    idf = parameters[2]
     total_word_count_by_label = parameters[3]
     total_num_words = parameters[4]
 

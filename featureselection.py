@@ -1,6 +1,10 @@
 from matplotlib import pyplot as plt
 import numpy as np
-from collections import OrderedDict
+from nltk.corpus import stopwords
+import preprocessing as pp
+from collections import OrderedDict, defaultdict
+import os
+import naivebayes as nb
 
 
 def polynomial(a, x, b, c):
@@ -39,7 +43,7 @@ def compute_mse(function, x, params, y_pred):
     return ((function(a, x, b, c) - y_pred)**2).mean()
 
 
-def most_useful_features(filename):
+def most_useful_features_by_cdm(filename):
     cdm_scores = []
     words = []
     cdm = []
@@ -70,9 +74,47 @@ def most_useful_features(filename):
     # print(y[i], y[i - 1], np.absolute(y[i] - y[i - 1]))
     while np.absolute(y[i] - y[i - 1]) >= desired_delta:
         i += 1
-    most_useful = {w: True for w, c in cdm[i:]}
+    # len(valid_words) = 23799
+    most_useful = {w: True for w, c in cdm[18799:]}
     print(len(most_useful.keys()))
     return OrderedDict(sorted(most_useful.items(), key=lambda t: t[0]))
+
+
+def chi_squared_test(dir_path, valid_words_labels, number_labels, prior_probs, total_valid_words):
+    # D = num_docs
+    # P = num docs with class C containing term T
+    # Q = num docs not with class C containing term T
+    # N = number of documents not with class C not containing term T
+    # M = number of documents with class C not containing term T
+    d = len([file for file in os.listdir(dir_path)])
+    df = pp.get_df(dir_path, number_labels, prior_probs.keys(), total_valid_words)
+    parameters = pp.get_parameters(dir_path, total_valid_words, number_labels, prior_probs.keys())
+    idf = parameters[2]
+    valid_words_by_label = {label: defaultdict(bool) for label in prior_probs.keys()}
+    for label, vector in valid_words_labels.items():
+        for word, score in vector.items():
+            if word in df[label]:
+                p = df[label][word]
+            else:
+                p = 0
+            total_docs_with_word = (d/np.exp(idf[word] - 1)) - 1
+            n = d - prior_probs[label] - (total_docs_with_word - df[label][word])
+            m = prior_probs[label] - df[label][word]
+            q = total_docs_with_word - df[label][word]
+            denom = (p+m)*(q+n)*(p+q)*(m+n)
+            print(word, p, m, q, n)
+            # Chi Square statistic for p-value < 0.05 is 3.841 (1 DF)
+            # Higher chi squared statistic means that there is no relationship
+            # between the term and the label
+            # So we want to pick the ones with which we fail to reject the null
+            # hypothesis, i.e any scores < 3.841
+            chi_squared_stat = (d*(p*n-m*q)**2)/denom
+            # print(label, word, chi_squared_stat)
+            if chi_squared_stat <= 5.02:
+                valid_words_by_label[label][word] = True
+        valid_words_taken = valid_words_by_label[label]
+        valid_words_by_label[label] = OrderedDict(valid_words_taken.items(), key=lambda t: t[0])
+    return valid_words_by_label
 
 
 if __name__ == '__main__':
@@ -86,4 +128,13 @@ if __name__ == '__main__':
     graph_log_derivative(a, indices, 'purple')
     plt.show()
     '''
-    most_useful_features("cdmscores.txt")
+    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\TextClassifiers\\MiniTrainingSet"
+    stop_words = set(stopwords.words('english'))
+    number_labels_training, number_labels_test = pp.add_labels_to_samples("cats1.txt")
+    prior_probs = nb.compute_prior_probabilities(number_labels_training)
+    valid_words, total_valid_words = pp.get_valid_words(dir_path, stop_words, prior_probs.keys(), number_labels_training)
+    valid_words_by_label = chi_squared_test(dir_path, valid_words, number_labels_training, prior_probs, total_valid_words)
+    for label, vector in valid_words_by_label.items():
+        print(label, len(vector.keys()), len(valid_words[label]))
+
+

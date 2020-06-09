@@ -35,7 +35,7 @@ def sigmoid(x):
     return .5 * (1 + np.tanh(.5 * x))
 
 
-def logistic_regression(weights, data, binary_label_vectors, threshold, learning_rate):
+def logistic_regression(weights, data, binary_label_vectors, threshold, learning_rate, word_indices_by_label):
     '''
     :param weights: a matrix of len(valid_words) rows and len(label_list)
                     columns, where entry i,j is the weight for word i
@@ -50,6 +50,8 @@ def logistic_regression(weights, data, binary_label_vectors, threshold, learning
                         this value, we claim the model has converged
     :param learning rate: the scaling factor of the gradient to ensure we do not
                             descend too quickly
+    :param word_indices: a dictionary where keys = indices and values = the index
+                        of that word that the number corresponds to
     :return: the weights matrix, updated after running gradient descent on it 
     '''
     for label in binary_label_vectors.keys():
@@ -57,24 +59,31 @@ def logistic_regression(weights, data, binary_label_vectors, threshold, learning
         labels = np.asarray(binary_label_vectors[label]).reshape(1, data.shape[1])
         # Labels.shape = 1x5
         num_docs = labels.shape[0]
-        weight_vector = np.transpose(weights[label]).reshape(1, data.shape[0])
+        weight_vector = np.transpose(weights[label]).reshape(1, weights[label].shape[0])
         converged = False
         k = 1
         num_docs = labels.shape[0]
+        start = time.time()
+        data_1 = np.asarray([[0 for i in range(data.shape[1])] for j in range(weight_vector.shape[1])])
+        print(data_1.shape)
+        for i in range(data.shape[1]):
+            data_1[:, i] = [data[j][i] for j in range(data.shape[0]) if j in word_indices_by_label[label]]
+        print(label, data_1.shape)
+        print(time.time() - start)
         while not converged and k < 50:
             converged = True
             print(label, "Iteration:", k)
-            start = time.time()
-            weight_eval = sigmoid(np.dot(weight_vector, data))
+            # start = time.time()
+            weight_eval = sigmoid(np.dot(weight_vector, data_1))
             # weight_eval.shape = 1x5
-            print("W^T * x", time.time() - start)
-            start = time.time()
+            # print("W^T * x", time.time() - start)
+            # start = time.time()
             loss = np.subtract(labels, weight_eval)
             # loss.shape = 1x5
-            gradient = np.dot(loss, np.transpose(data))
+            gradient = np.dot(loss, np.transpose(data_1))
             gradient *= learning_rate
-            print("Gradient: ", time.time()-start)
-            start = time.time()
+            # print("Gradient: ", time.time()-start)
+            # start = time.time()
             updated_weights = weight_vector + gradient
             delta = weight_vector - updated_weights
             weight_vector = updated_weights
@@ -83,9 +92,8 @@ def logistic_regression(weights, data, binary_label_vectors, threshold, learning
                     if np.absolute(delta[i][j]) >= threshold:
                         converged = False
             k += 1
-            print("Check convergence: ", time.time()-start)
+            # print("Check convergence: ", time.time()-start)
             # gradient.shape = 1x308
-        # print("Iterations: ", label, k)
         weights[label] = weight_vector
     return weights
 
@@ -176,40 +184,54 @@ def construct_binary_label_vectors(indexed_labels, filename, num_docs):
 
 
 if __name__ == '__main__':
-    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\TextClassifiers\\training"
+    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\TextClassifiers\\MiniTrainingSet"
     stop_words = set(stopwords.words('english'))
-    valid_words = fs.most_useful_features("cdmscores.txt")
-    # valid_words = pp.get_valid_words(dir_path, stop_words)
-    number_labels_training, number_labels_test = pp.add_labels_to_samples("cats2.txt")
+    # valid_words = fs.most_useful_features("cdmscores.txt")
+    number_labels_training, number_labels_test = pp.add_labels_to_samples("cats1.txt")
     prior_probs = pp.compute_prior_probabilities(number_labels_training)
+    valid_words_label, valid_words = pp.get_valid_words(dir_path, stop_words, prior_probs.keys(), number_labels_training)
+    for label, vector in valid_words_label.items():
+        print(label,len(vector))
+
+
+    word_indices = {i: word for i, word in enumerate(valid_words.keys())}
+    word_indices_by_label = {label: {} for label in prior_probs.keys()}
+    for label in prior_probs.keys():
+        word_indices_by_label[label] = {i: word for i, word in enumerate(valid_words.keys()) 
+                                        if word in valid_words_label[label]}
     indexed_labels = {label: i for i, label in enumerate(prior_probs.keys())}
 
-    # build_new_cats_file("cats.txt")
+    for label, vector in valid_words_label.items():
+        valid_words_label[label] = OrderedDict(sorted(vector.items(), key=lambda t: t[0]))
     feature_matrix = construct_feature_matrix(dir_path, valid_words)
     print(feature_matrix.shape)
     # Each column in the feature matrix corresponds to an individual document
 
-    weights = {label: np.asarray([np.random.uniform(0,0.005) for i in range(len(valid_words.keys()))]) for label in prior_probs.keys()}
+    weights = {label: np.array([]) for label in prior_probs.keys()}
+    for label in prior_probs.keys():
+        weights[label] = np.asarray([np.random.uniform(0,0.005) for i in range(len(valid_words_label[label].keys()))])
 
     num_docs = len([name for name in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, name))])
-    binary_label_vectors = construct_binary_label_vectors(indexed_labels, "cats2.txt", num_docs)
+    binary_label_vectors = construct_binary_label_vectors(indexed_labels, "cats1.txt", num_docs)
 
-    trained_weights = logistic_regression(weights, feature_matrix, binary_label_vectors, 0.01, 0.01)
+    trained_weights = logistic_regression(weights, feature_matrix, binary_label_vectors, 0.01, 0.01, word_indices_by_label)
 
     successes = 0
+    earns = 0
     j = 0
-    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\TextClassifiers\\test"
+    dir_path = "C:\\Users\\ksing\\OneDrive\\Documents\\TextClassifiers\\MiniTrainingSet"
     for file in os.listdir(dir_path):
         num = int(file[0:len(file) - 4])
         filepath = dir_path + "\\" + file
         vector = pp.vectorize_text(valid_words, filepath)
-        frequencies = {word: 0 for word in valid_words}
-        freq = Counter(vector)
-        for word in freq.keys():
-            frequencies[word] = freq[word]
-        counts = np.asarray([v for v in frequencies.values()])
         probs = []
         for label, w in trained_weights.items():
+            frequencies = {word: 0 for word in valid_words_label[label]}
+            freq = Counter(vector)
+            for word in freq.keys():
+                if word in frequencies:
+                    frequencies[word] = freq[word]
+            counts = np.asarray([v for v in frequencies.values()])
             prob = np.dot(w, counts)
             probs.append([label, prob[0]])
         probs = sorted(probs, key=lambda t: t[1], reverse=True)
@@ -218,9 +240,17 @@ if __name__ == '__main__':
         for i in range(len(just_scores)):
             probs[i][1] = just_scores[i]
         s,e,b = pp.accuracy_model(num, number_labels_test, probs)
+        earns += e
         successes += s
         j += 1
         # First run, 86.07% accuracy
+        # Cutting feature set to around 6700 increased accuracy up to 86.20%
+        # Cutting to 5000 increases accuracy to 86.22%, with 1944 "Earn" labels
+            # Perhaps applying tf_idf transformations to these frequencies
+            # should reduce this number
+        # With new feature sets, accuracy drops to 83.99%, but it runs much faster, although not fast enough
+        # The main overhead comes from trimming the data vectors
+        
     print(successes, j)
             
 

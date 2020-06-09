@@ -1,5 +1,6 @@
-from collections import defaultdict, OrderedDict
+from collections import defaultdict, Counter, OrderedDict
 import os.path
+import numpy as np
 import os
 import nltk
 
@@ -102,7 +103,7 @@ def add_labels_to_samples(filename):
     return [number_labels_training, number_labels_test]
 
 
-def get_valid_words(dir_path, stop_words):
+def get_valid_words(dir_path, stop_words, label_list, number_labels):
     '''
     Utility function that determines the set of valid words
     to be used for classification and probability calculation
@@ -110,22 +111,31 @@ def get_valid_words(dir_path, stop_words):
                     all the training samples
     :param stop_words: a set of words like "the", "and", etc
                         that should be stripped out of any computations
-    :return: a Python dictionary where the keys = valid words and the
-            values = True, so we can use "key in dict" for future access
-            in guaranteed constant time
+    :param label_list: a list of all the valid labels in the corpus
+    :param number_labels: a dictionary where keys = number of document
+                        and values = the list of labels that this document
+                        has
+    :return: a dictionary where keys = labels and values = a dictionary
+            where keys = all the unique words that exist in documents
+            with this label
     '''
-    valid_words = defaultdict(bool)
+    total_valid_words = defaultdict(bool)
+    valid_words = {label: defaultdict(bool) for label in label_list}
     for file in os.listdir(dir_path):
         with open(dir_path + '\\' + file, "r") as f:
             content = f.read()
+            num = int(file[0:len(file) - 4])
             words = nltk.word_tokenize(content)
             new_words = [word.lower() for word in words]
             new_words = [word.lower() for word in new_words if word.isalpha()]
             new_words = [word.lower() for word in new_words if word not in stop_words]
             new_words = set(new_words)
-            for word in new_words:
-                valid_words[word] = True
-    return OrderedDict(sorted(valid_words.items(), key=lambda t: t[0]))
+            labels = number_labels[num]
+            for l in labels:
+                for word in new_words:
+                    total_valid_words[word] = True
+                    valid_words[l][word] = True
+    return valid_words, OrderedDict(sorted(total_valid_words.items(), key=lambda t: t[0]))
 
 
 def vectorize_text(valid_words, filepath):
@@ -173,5 +183,94 @@ def compute_precision_recall(computed_label_set, number_labels, label_list):
     total_recall_denom = sum([v for v in recall_denom.values()])
     total_recall /= total_recall_denom
     return [total_precision, total_recall]
+
+
+def get_df(dir_path, number_labels, label_list, valid_words):
+    '''
+    :param dir_path: path to the directory containing all
+                    the training files
+    :param number_labels: dictionary where keys = number of document
+                            and values = the set of labels associated
+                            with that document
+    :param label_list: list of all the labels in the training set
+    :return: a dictionary where keys = labels and values = a
+            dictionary where keys = words and values = the
+            number of documents with label l that word appears in
+    '''
+    df = {label: {word: 0.0 for word in valid_words.keys()} for label in label_list}
+    for file in os.listdir(dir_path):
+        filepath = dir_path + '\\' + file
+        with open(filepath, "r") as f:
+            num = int(file[0:len(file) - 4])
+            vector = vectorize_text(valid_words, filepath)
+            freq = Counter(vector)
+            labels = number_labels[num]
+            for l in labels:
+                for word in freq.keys():
+                    if not df[l][word]:
+                        df[l][word] = 1
+                    else:
+                        df[l][word] += 1
+    return df
+
+
+def get_parameters(dir_path, valid_words, number_labels, label_list):
+    '''
+    This function will iterate over the documents and compute the frequencies of
+    the words by label and in total
+    :param dir_path: a path to the directory containing all the training samples
+    :param valid_words: a dictionary where the keys are all the unique, valid
+                        terms are present in the text file
+    :param number_labels: dictionary where keys = document # and values = the set of
+                            labels associated with those labels
+    :param label_list: list of all the unique labels
+    :return: a dictionary where keys = labels and values = dictionary where keys
+            = words and values = the frequencies of that word in documents with that label
+            AND
+            a dictionary where keys = words and values = the total # of occurrences of
+            that word
+            AND
+            a dictionary where keys = words and values = the idf score for that word
+            AND
+            a dictionary where keys = labels and values = the total # of words associated with that label
+            AND
+            the total # of valid words in the entire corpus
+    '''
+    words_by_doc_num = defaultdict()
+    idf = {word: 0.0 for word in valid_words}
+    total_num_words = 0
+    total_word_count_by_label = {label: 0 for label in label_list}
+    i = 0
+    for file in os.listdir(dir_path):
+        with open(dir_path + '\\' + file, "r") as f:
+            content = f.read()
+            num = int(file[0:len(file) - 4])
+            labels = number_labels[num]
+            words = nltk.word_tokenize(content)
+            new_words = [word.lower() for word in words]
+            new_words = [word.lower() for word in new_words if word in valid_words]
+            total_num_words += len(new_words)
+            freq = Counter(new_words)
+            words_by_doc_num[num] = freq
+            for word in freq.keys():
+                idf[word] += 1
+            for l in labels:
+                total_word_count_by_label[l] += len(new_words)
+            i += 1
+    for word in idf.keys():
+        idf[word] = 1 + np.log(i/(idf[word]+1))
+    frequencies = {label: {word: 0.0 for word in valid_words} for label in label_list}
+    total_frequencies = {word: 0 for word in valid_words}
+    for num in words_by_doc_num.keys():
+        freq = words_by_doc_num[num]
+        labels = number_labels[num]
+        normalization_term = np.sqrt(sum([score**2 for word, score in freq.items()]))
+        for l in labels:
+            total_word_count_by_label[l] += len(new_words)
+            for word in freq.keys():
+                term_to_add = freq[word] * idf[word]
+                frequencies[l][word] += (term_to_add/normalization_term)
+                total_frequencies[word] += (term_to_add/normalization_term)
+    return [frequencies, total_frequencies, idf, total_word_count_by_label, total_num_words]
 
 
